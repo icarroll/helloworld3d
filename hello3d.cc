@@ -177,8 +177,6 @@ uint32_t timer_callback(uint32_t interval, void * param) {
     return interval;
 }
 
-int frame = 0;
-
 unsigned int shaderProgram;
 unsigned int VAO;
 
@@ -276,6 +274,8 @@ void initstuff3d() {
     glEnable(GL_DEPTH_TEST);
 }
 
+int frame = 0;
+
 void drawstuff3d() {
     // background color
     glClearColor(0.2, 0.3, 0.3, 1.0);
@@ -292,7 +292,7 @@ void drawstuff3d() {
 
     // draw shapes
     glBindVertexArray(VAO);
-    glDrawElements(GL_TRIANGLES, 3*4, GL_UNSIGNED_INT, 0);
+    glDrawElements(GL_TRIANGLES, 4*3, GL_UNSIGNED_INT, 0);
 }
 
 int main(int nargs, char * args[])
