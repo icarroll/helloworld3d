@@ -1,6 +1,7 @@
 #include <chrono>
 #include <cmath>
 #include <iostream>
+#include <map>
 #include <random>
 #include <string>
 #include <thread>
@@ -8,13 +9,16 @@
 
 #include <chipmunk.h>
 
+#include <glm/glm.hpp>
+
 extern "C" {
 #include <SDL.h>
-#include <gl\glew.h>
+#include <gl/glew.h>
 #include <SDL_opengl.h>
-#include <gl\glu.h>
+#include <gl/glu.h>
 
-#include <cairo.h>
+#include <ft2build.h>
+#include FT_FREETYPE_H
 }
 
 using namespace std;
@@ -26,10 +30,22 @@ char WINDOW_NAME[] = "Hello, World! Now in 3D!";
 SDL_Window * gWindow = NULL;
 SDL_GLContext gContext;
 
+FT_Library ft;
+FT_Face face;
+
 void die(string message) {
     cout << message << endl;
     exit(1);
 }
+
+struct Character {
+    GLuint TextureID;
+    glm::ivec2 Size;
+    glm::ivec2 Bearing;
+    GLuint Advance;
+};
+
+map<GLchar, Character> Characters;
 
 // initialize SDL and OpenGL
 void init()
@@ -53,6 +69,39 @@ void init()
     glewExperimental = GL_TRUE; 
     GLenum glewError = glewInit();
     if (glewError != GLEW_OK) die("glew");
+
+    if (FT_Init_FreeType(& ft)) die("freetype");
+    if (FT_New_Face(ft, "arial.ttf", 0, & face)) die("font");
+    FT_Set_Pixel_Sizes(face, 0, 48);
+    glPixelStorei(GL_UNPACK_ALIGNMENT, 1);
+    for (GLubyte c=0 ; c<128 ; c+=1) {
+        if (FT_Load_Char(face, c, FT_LOAD_RENDER)) die("glyph");
+        GLuint texture;
+        glGenTextures(1, & texture);
+        glBindTexture(GL_TEXTURE_2D, texture);
+        glTexImage2D(
+                GL_TEXTURE_2D,
+                0,
+                GL_RED,
+                face->glyph->bitmap.width,
+                face->glyph->bitmap.rows,
+                0,
+                GL_RED,
+                GL_UNSIGNED_BYTE,
+                face->glyph->bitmap.buffer
+        );
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+        Character character = {
+            texture,
+            glm::ivec2(face->glyph->bitmap.width, face->glyph->bitmap.rows),
+            glm::ivec2(face->glyph->bitmap_left, face->glyph->bitmap_top),
+            face->glyph->advance.x
+        };
+        Characters.insert(pair<GLchar, Character>(c, character));
+    }
 }
 
 void close()
@@ -74,12 +123,7 @@ cpSpace * space;
 
 int BLIT_READY;
 
-/*
-void drawstuff(cairo_t * cr) {
-    // 0,0 at center of window and 1,1 at top right
-    cairo_scale(cr, SCREEN_WIDTH/2.0, -SCREEN_HEIGHT/2.0);
-    cairo_translate(cr, 1, -1);
-
+void bouncy() {
     // set up physics
     cpVect gravity = cpv(0, -1);
     space = cpSpaceNew();
@@ -89,24 +133,15 @@ void drawstuff(cairo_t * cr) {
     cpBody * body0 = cpSpaceAddBody(space, cpBodyNewStatic());
     cpBodySetPosition(body0, cpv(0, 1));
 
-    // set font
-    cairo_select_font_face(cr, "Georgia", CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
-    cairo_set_font_size(cr, 0.2);
-    cpFloat pad = 0.02;
-
     // "Hello,"
-    cairo_text_extents_t te1;
-    cairo_text_extents(cr, "Hello,", & te1);
     cpFloat mass1 = 1;
-    cpFloat moment1 = cpMomentForBox(mass1, te1.width, te1.height);
+    cpFloat moment1 = cpMomentForBox(mass1, 160, 120);
     cpBody * body1 = cpSpaceAddBody(space, cpBodyNew(mass1, moment1/2));
     cpBodySetPosition(body1, cpv(0.5, 0.75));
 
     // "World!"
-    cairo_text_extents_t te2;
-    cairo_text_extents(cr, "World!", & te2);
     cpFloat mass2 = 1;
-    cpFloat moment2 = cpMomentForBox(mass2, te2.width, te2.height);
+    cpFloat moment2 = cpMomentForBox(mass2, 160, 120);
     cpBody * body2 = cpSpaceAddBody(space, cpBodyNew(mass2, moment2/2));
     cpBodySetPosition(body2, cpv(0.5, 0.333));
 
@@ -117,57 +152,15 @@ void drawstuff(cairo_t * cr) {
     while (true) {
         for (int n=0 ; n<20 ; n+=1) cpSpaceStep(space, 1/1000.0);
 
-        // clear screen
-        cairo_rectangle(cr, -1, -1, 2, 2);
-        cairo_set_source_rgb(cr, 1, 1, 1);
-        cairo_fill(cr);
-
         // Hello,
         cpVect pos1 = cpBodyGetPosition(body1);
         cpFloat rot1 = cpBodyGetAngle(body1);
 
-        cairo_save(cr);
-
-        cairo_move_to(cr, pos1.x, pos1.y);
-        cairo_scale(cr, 1, -1);
-        cairo_rotate(cr, rot1);
-        cairo_rel_move_to(cr, -te1.width/2, te1.height/2);
-        cairo_text_path(cr, "Hello,");
-        cairo_set_source_rgb(cr, 0,0,1);
-        cairo_fill_preserve(cr);
-        cairo_set_line_width(cr, 0.001);
-        cairo_set_source_rgb(cr, 0,0,0);
-        cairo_stroke(cr);
-
-        cairo_restore(cr);
-
         // World!
         cpVect pos2 = cpBodyGetPosition(body2);
         cpFloat rot2 = cpBodyGetAngle(body2);
-
-        cairo_save(cr);
-
-        cairo_move_to(cr, pos2.x, pos2.y);
-        cairo_scale(cr, 1, -1);
-        cairo_rotate(cr, rot2);
-        cairo_rel_move_to(cr, -te2.width/2, te2.height/2);
-        cairo_text_path(cr, "World!");
-        cairo_set_source_rgb(cr, 0,1,0);
-        cairo_fill_preserve(cr);
-        cairo_set_line_width(cr, 0.001);
-        cairo_set_source_rgb(cr, 0,0,0);
-        cairo_stroke(cr);
-
-        cairo_restore(cr);
-
-        SDL_Event e;
-        e.type = BLIT_READY;
-        SDL_PushEvent(& e);
-
-        this_thread::sleep_for(chrono::milliseconds(20));
     }
 }
-*/
 
 uint32_t timer_callback(uint32_t interval, void * param) {
     SDL_Event e;
@@ -189,6 +182,7 @@ void drawstuff3d() {
         "layout (location = 1) in vec3 aColor;"
         "out vec3 ourColor;"
         "void main() {"
+        "  /*gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);*/"
         "  gl_Position = vec4(aPos, 1.0);"
         "  ourColor = aColor;"
         "}";
