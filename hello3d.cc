@@ -179,7 +179,12 @@ uint32_t timer_callback(uint32_t interval, void * param) {
 
 int frame = 0;
 
-void drawstuff3d() {
+unsigned int shaderProgram;
+unsigned int VAO;
+
+void initstuff3d() {
+    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+
     // vertex shader
     const char * vertex_shader_code =
         "#version 330 core\n"
@@ -216,7 +221,6 @@ void drawstuff3d() {
     if (! success) die("fragment shader");
 
     // shader program
-    unsigned int shaderProgram;
     shaderProgram = glCreateProgram();
     glAttachShader(shaderProgram, vertexShader);
     glAttachShader(shaderProgram, fragmentShader);
@@ -244,7 +248,6 @@ void drawstuff3d() {
     };
 
     // vertex array object
-    unsigned int VAO;
     glGenVertexArrays(1, & VAO);
 
     // vertex buffer object
@@ -271,7 +274,9 @@ void drawstuff3d() {
 
     // z-buffer
     glEnable(GL_DEPTH_TEST);
+}
 
+void drawstuff3d() {
     // background color
     glClearColor(0.2, 0.3, 0.3, 1.0);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -294,7 +299,7 @@ int main(int nargs, char * args[])
 {
     init();
 
-    glViewport(0, 0, 800, 800);
+    initstuff3d();
 
     BLIT_READY = SDL_RegisterEvents(1);
     SDL_TimerID draw_timer_id = SDL_AddTimer(20, timer_callback, NULL); // timer tick every 20msec
