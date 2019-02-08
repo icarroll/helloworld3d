@@ -10,6 +10,7 @@
 #include <chipmunk.h>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
 
 extern "C" {
 #include <SDL.h>
@@ -50,9 +51,11 @@ map<GLchar, Character> Characters;
 // initialize SDL and OpenGL
 void init()
 {
+    // init SDL
     if (SDL_Init(SDL_INIT_VIDEO) < 0) die("SDL");
     if (! SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1")) die("texture");
 
+    // init SDL GL
     SDL_GL_SetAttribute( SDL_GL_CONTEXT_MAJOR_VERSION, 3 );
     SDL_GL_SetAttribute( SDL_GL_CONTEXT_MINOR_VERSION, 3 );
     SDL_GL_SetAttribute( SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE );
@@ -66,10 +69,12 @@ void init()
     gContext = SDL_GL_CreateContext(gWindow);
     if (! gContext) die("gl context");
 
+    // init GLEW
     glewExperimental = GL_TRUE; 
     GLenum glewError = glewInit();
     if (glewError != GLEW_OK) die("glew");
 
+    // init Freetype and load glyphs
     if (FT_Init_FreeType(& ft)) die("freetype");
     if (FT_New_Face(ft, "arial.ttf", 0, & face)) die("font");
     FT_Set_Pixel_Sizes(face, 0, 48);
@@ -106,6 +111,8 @@ void init()
 
 void close()
 {
+    //TODO close Freetype and OpenGL
+
     SDL_DestroyWindow(gWindow);
     gWindow = NULL;
 
@@ -170,20 +177,19 @@ uint32_t timer_callback(uint32_t interval, void * param) {
     return interval;
 }
 
-void drawstuff3d() {
-    // background color
-    glClearColor(0.2, 0.3, 0.3, 1.0);
-    glClear(GL_COLOR_BUFFER_BIT);
+int frame = 0;
 
+void drawstuff3d() {
     // vertex shader
     const char * vertex_shader_code =
         "#version 330 core\n"
         "layout (location = 0) in vec3 aPos;"
         "layout (location = 1) in vec3 aColor;"
         "out vec3 ourColor;"
+        "uniform mat4 transform;"
         "void main() {"
         "  /*gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);*/"
-        "  gl_Position = vec4(aPos, 1.0);"
+        "  gl_Position = transform * vec4(aPos, 1.0);"
         "  ourColor = aColor;"
         "}";
     unsigned int vertexShader;
@@ -222,21 +228,39 @@ void drawstuff3d() {
     glDeleteShader(vertexShader);
     glDeleteShader(fragmentShader);
 
+    // vertices with colors
+    float vertices[] = {
+        sqrt(8.0/9.0),  0.0,            -1.0/3.0, 1.0,0.0,0.0,
+        -sqrt(2.0/9.0), sqrt(2.0/3.0),  -1.0/3.0, 0.0,1.0,0.0,
+        -sqrt(2.0/9.0), -sqrt(2.0/3.0), -1.0/3.0, 0.0,0.0,1.0,
+        0.0,            0.0,            1.0,      1.0,1.0,0.0,
+    };
+    // triangles from vertices
+    unsigned int indices[] = {
+        0, 1, 2,
+        0, 1, 3,
+        0, 2, 3,
+        1, 2, 3,
+    };
+
     // vertex array object
     unsigned int VAO;
     glGenVertexArrays(1, & VAO);
-    glBindVertexArray(VAO);
 
-    // triangle (with vertex buffer object)
-    float vertices[] = {
-        -0.5, -0.5, 0.0, 1.0,0.0,0.0,
-         0.5, -0.5, 0.0, 0.0,1.0,0.0,
-         0.0,  0.5, 0.0, 0.0,0.0,1.0
-    };
+    // vertex buffer object
     unsigned int VBO;
     glGenBuffers(1, & VBO);
+
+    // element buffer object
+    unsigned int EBO;
+    glGenBuffers(1, & EBO);
+
+    // bind all the things
+    glBindVertexArray(VAO);
     glBindBuffer(GL_ARRAY_BUFFER, VBO);
     glBufferData(GL_ARRAY_BUFFER, sizeof(vertices), vertices, GL_STATIC_DRAW);
+    glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, EBO);
+    glBufferData(GL_ELEMENT_ARRAY_BUFFER, sizeof(indices), indices, GL_STATIC_DRAW);
 
     // vertices
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), nullptr);
@@ -245,9 +269,25 @@ void drawstuff3d() {
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 6*sizeof(float), (void *) (3*sizeof(float)));
     glEnableVertexAttribArray(1);
 
+    // z-buffer
+    glEnable(GL_DEPTH_TEST);
+
+    // background color
+    glClearColor(0.2, 0.3, 0.3, 1.0);
+    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+    // transformation (rotate 1 degree per frame)
+    glm::mat4 transform = glm::mat4(1.0); // identity matrix
+    transform = glm::rotate(transform, (float) (frame*M_PI/360.0), glm::vec3(0,1,0));
+
+    // enable shader with transform
     glUseProgram(shaderProgram);
+    unsigned int transformLoc = glGetUniformLocation(shaderProgram, "transform");
+    glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
+
+    // draw shapes
     glBindVertexArray(VAO);
-    glDrawArrays(GL_TRIANGLES, 0, 3);
+    glDrawElements(GL_TRIANGLES, 3*4, GL_UNSIGNED_INT, 0);
 }
 
 int main(int nargs, char * args[])
@@ -257,7 +297,7 @@ int main(int nargs, char * args[])
     glViewport(0, 0, 800, 800);
 
     BLIT_READY = SDL_RegisterEvents(1);
-    SDL_TimerID draw_timer_id = SDL_AddTimer(20, timer_callback, NULL);
+    SDL_TimerID draw_timer_id = SDL_AddTimer(20, timer_callback, NULL); // timer tick every 20msec
 
     bool done = false;
     while (! done)
@@ -269,6 +309,7 @@ int main(int nargs, char * args[])
         else if (e.type == BLIT_READY) {
             drawstuff3d();
             SDL_GL_SwapWindow(gWindow);
+            frame += 1;
         }
     }
 
