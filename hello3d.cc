@@ -10,6 +10,7 @@
 #include <chipmunk.h>
 
 #include <glm/glm.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/type_ptr.hpp>
 
 extern "C" {
@@ -48,7 +49,7 @@ struct Character {
 
 map<GLchar, Character> Characters;
 
-// initialize SDL and OpenGL
+// initialize libraries
 void init()
 {
     // init SDL
@@ -128,8 +129,6 @@ double random(double min, double max) {
 
 cpSpace * space;
 
-int BLIT_READY;
-
 void bouncy() {
     // set up physics
     cpVect gravity = cpv(0, -1);
@@ -169,31 +168,20 @@ void bouncy() {
     }
 }
 
-uint32_t timer_callback(uint32_t interval, void * param) {
-    SDL_Event e;
-    e.type = BLIT_READY;
-    SDL_PushEvent(& e);
-
-    return interval;
-}
-
 unsigned int shaderProgram;
 unsigned int VAO;
 
-void initstuff3d() {
-    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
-
+void inittetrahedron() {
     // vertex shader
     const char * vertex_shader_code =
         "#version 330 core\n"
-        "layout (location = 0) in vec3 aPos;"
-        "layout (location = 1) in vec3 aColor;"
-        "out vec3 ourColor;"
-        "uniform mat4 transform;"
-        "void main() {"
-        "  /*gl_Position = vec4(aPos.x, aPos.y, aPos.z, 1.0);*/"
-        "  gl_Position = transform * vec4(aPos, 1.0);"
-        "  ourColor = aColor;"
+        "layout (location = 0) in vec3 aPos;\n"
+        "layout (location = 1) in vec3 aColor;\n"
+        "out vec3 ourColor;\n"
+        "uniform mat4 transform;\n"
+        "void main() {\n"
+        "  gl_Position = transform * vec4(aPos.x,aPos.y,aPos.z, 1.0);\n"
+        "  ourColor = aColor;\n"
         "}";
     unsigned int vertexShader;
     vertexShader = glCreateShader(GL_VERTEX_SHADER);
@@ -201,22 +189,34 @@ void initstuff3d() {
     glCompileShader(vertexShader);
     int success;
     glGetShaderiv(vertexShader, GL_COMPILE_STATUS, & success);
-    if (! success) die("vertex shader");
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("vertex shader");
+    }
 
     // fragment shader
     const char * fragment_shader_code = 
         "#version 330 core\n"
-        "out vec4 FragColor;"
-        "in vec3 ourColor;"
-        "void main() {"
-        "  FragColor = vec4(ourColor, 1.0f);"
+        "out vec4 FragColor;\n"
+        "in vec3 ourColor;\n"
+        "uniform bool outline;\n"
+        "void main() {\n"
+        "  if (outline) FragColor = vec4(1.0f,1.0f,1.0f,1.0f);\n"
+        "  else FragColor = vec4(ourColor, 1.0f);\n"
         "}";
     unsigned int fragmentShader;
     fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
     glShaderSource(fragmentShader, 1, & fragment_shader_code, NULL);
     glCompileShader(fragmentShader);
     glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, & success);
-    if (! success) die("fragment shader");
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("fragment shader");
+    }
 
     // shader program
     shaderProgram = glCreateProgram();
@@ -272,15 +272,95 @@ void initstuff3d() {
 
     // z-buffer
     glEnable(GL_DEPTH_TEST);
+
+    // lines
+    glEnable(GL_LINE_SMOOTH);
+    glLineWidth(2.0);
+}
+
+unsigned int text_shaderProgram;
+unsigned int text_VAO;
+unsigned int text_VBO;
+
+void inittext() {
+    // vertex shader
+    const char * vertex_shader_code =
+        "#version 330 core\n"
+        "layout (location = 0) in vec4 vertex;\n"
+        "out vec2 TexCoords;\n"
+        "uniform mat4 projection;\n"
+        "void main() {\n"
+        "  gl_Position = projection * vec4(vertex.xy, 0.667, 1.0);\n"
+        "  TexCoords = vertex.zw;\n"
+        "}";
+    unsigned int vertexShader;
+    vertexShader = glCreateShader(GL_VERTEX_SHADER);
+    glShaderSource(vertexShader, 1, & vertex_shader_code, NULL);
+    glCompileShader(vertexShader);
+    int success;
+    glGetShaderiv(vertexShader, GL_COMPILE_STATUS, & success);
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(vertexShader, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("text vertex shader");
+    }
+
+    // fragment shader
+    const char * fragment_shader_code = 
+        "#version 330 core\n"
+        "in vec2 TexCoords;\n"
+        "out vec4 color;\n"
+        "uniform sampler2D text;\n"
+        "uniform vec3 textColor;\n"
+        "void main() {\n"
+        "  vec4 sampled = vec4(1.0, 1.0, 1.0, texture(text, TexCoords).r);\n"
+        "  color = vec4(textColor, 1.0) * sampled;\n"
+        "}";
+    unsigned int fragmentShader;
+    fragmentShader = glCreateShader(GL_FRAGMENT_SHADER);
+    glShaderSource(fragmentShader, 1, & fragment_shader_code, NULL);
+    glCompileShader(fragmentShader);
+    glGetShaderiv(fragmentShader, GL_COMPILE_STATUS, & success);
+    if (! success) {
+        char infoLog[512];
+        glGetShaderInfoLog(fragmentShader, 512, NULL, infoLog);
+        cout << infoLog << endl;
+        die("text fragment shader");
+    }
+
+    // shader program
+    text_shaderProgram = glCreateProgram();
+    glAttachShader(text_shaderProgram, vertexShader);
+    glAttachShader(text_shaderProgram, fragmentShader);
+    glLinkProgram(text_shaderProgram);
+    glGetProgramiv(text_shaderProgram, GL_LINK_STATUS, & success);
+    if (! success) die("text shader program");
+
+    // delete shaders (unneeded after program link)
+    glDeleteShader(vertexShader);
+    glDeleteShader(fragmentShader);
+
+    glm::mat4 projection = glm::ortho(0.0f, (float) SCREEN_WIDTH,
+                                      0.0f, (float) SCREEN_HEIGHT);
+
+    glUseProgram(text_shaderProgram);
+    glUniformMatrix4fv(glGetUniformLocation(text_shaderProgram, "projection"), 1, GL_FALSE, glm::value_ptr(projection));
+
+    glGenVertexArrays(1, & text_VAO);
+    glGenBuffers(1, & text_VBO);
+    glBindVertexArray(text_VAO);
+    glBindBuffer(GL_ARRAY_BUFFER, text_VBO);
+    glBufferData(GL_ARRAY_BUFFER, sizeof(GLfloat)*6*4, NULL, GL_DYNAMIC_DRAW);
+    glEnableVertexAttribArray(0);
+    glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, 4*sizeof(GLfloat), 0);
+    glBindBuffer(GL_ARRAY_BUFFER, 0);
+    glBindVertexArray(0);
 }
 
 int frame = 0;
 
-void drawstuff3d() {
-    // background color
-    glClearColor(0.2, 0.3, 0.3, 1.0);
-    glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-
+void drawtetrahedron() {
     // transformation (rotate 1 degree per frame)
     glm::mat4 transform = glm::mat4(1.0); // identity matrix
     transform = glm::rotate(transform, (float) (frame*M_PI/360.0), glm::vec3(0,1,0));
@@ -290,16 +370,85 @@ void drawstuff3d() {
     unsigned int transformLoc = glGetUniformLocation(shaderProgram, "transform");
     glUniformMatrix4fv(transformLoc, 1, GL_FALSE, glm::value_ptr(transform));
 
-    // draw shapes
+    // get outline uniform location
+    unsigned int outlineLoc = glGetUniformLocation(shaderProgram, "outline");
+
+    // draw faces
     glBindVertexArray(VAO);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+    glUniform1ui(outlineLoc, false);
     glDrawElements(GL_TRIANGLES, 4*3, GL_UNSIGNED_INT, 0);
+
+    // draw edges
+    glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+    glUniform1ui(outlineLoc, true);
+    glDrawElements(GL_TRIANGLES, 4*3, GL_UNSIGNED_INT, 0);
+}
+
+void drawtext(string text, GLfloat x, GLfloat y, GLfloat scale, glm::vec3 color) {
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+    glUseProgram(text_shaderProgram);
+    glUniform3f(glGetUniformLocation(text_shaderProgram, "textColor"),
+                color.x, color.y, color.z);
+    glActiveTexture(GL_TEXTURE0);
+    glBindVertexArray(text_VAO);
+
+    // Iterate through all characters
+    string::const_iterator c;
+    for (c=text.begin() ; c!=text.end() ; c+=1)
+    {
+        Character ch = Characters[*c];
+
+        GLfloat xpos = x + ch.Bearing.x * scale;
+        GLfloat ypos = y - (ch.Size.y - ch.Bearing.y) * scale;
+
+        GLfloat w = ch.Size.x * scale;
+        GLfloat h = ch.Size.y * scale;
+        // Update VBO for each character
+        GLfloat vertices[6][4] = {
+            { xpos,     ypos + h,   0.0, 0.0 },
+            { xpos,     ypos,       0.0, 1.0 },
+            { xpos + w, ypos,       1.0, 1.0 },
+
+            { xpos,     ypos + h,   0.0, 0.0 },
+            { xpos + w, ypos,       1.0, 1.0 },
+            { xpos + w, ypos + h,   1.0, 0.0 }
+        };
+        // Render glyph texture over quad
+        glBindTexture(GL_TEXTURE_2D, ch.TextureID);
+        // Update content of VBO memory
+        glBindBuffer(GL_ARRAY_BUFFER, text_VBO);
+        glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+        glBindBuffer(GL_ARRAY_BUFFER, 0);
+        // Render quad
+        glDrawArrays(GL_TRIANGLES, 0, 6);
+        // Now advance cursors for next glyph (note that advance is number of 1/64 pixels)
+        x += (ch.Advance >> 6) * scale; // Bitshift by 6 to get value in pixels (2^6 = 64)
+    }
+    glBindVertexArray(0);
+    glBindTexture(GL_TEXTURE_2D, 0);
+}
+
+int BLIT_READY;
+
+uint32_t timer_callback(uint32_t interval, void * param) {
+    SDL_Event e;
+    e.type = BLIT_READY;
+    SDL_PushEvent(& e);
+
+    return interval;
 }
 
 int main(int nargs, char * args[])
 {
     init();
 
-    initstuff3d();
+    glViewport(0, 0, SCREEN_WIDTH, SCREEN_HEIGHT);
+    inittetrahedron();
+    inittext();
 
     BLIT_READY = SDL_RegisterEvents(1);
     SDL_TimerID draw_timer_id = SDL_AddTimer(20, timer_callback, NULL); // timer tick every 20msec
@@ -312,7 +461,13 @@ int main(int nargs, char * args[])
 
         if (e.type == SDL_QUIT) done = true;
         else if (e.type == BLIT_READY) {
-            drawstuff3d();
+            // background color
+            glClearColor(0.2, 0.3, 0.3, 1.0);
+            glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+            drawtetrahedron();
+            drawtext("Hello, World!", 275.0, 400.0, 1.0,
+                     glm::vec3(0.9,0.9,0.9));
             SDL_GL_SwapWindow(gWindow);
             frame += 1;
         }
