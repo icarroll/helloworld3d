@@ -203,7 +203,7 @@ void inittetrahedron() {
         "in vec3 ourColor;\n"
         "uniform bool outline;\n"
         "void main() {\n"
-        "  if (outline) FragColor = vec4(1.0f,1.0f,1.0f,1.0f);\n"
+        "  if (outline) FragColor = vec4(0.2f,0.2f,0.2f,1.0f);\n"
         "  else FragColor = vec4(ourColor, 1.0f);\n"
         "}";
     unsigned int fragmentShader;
